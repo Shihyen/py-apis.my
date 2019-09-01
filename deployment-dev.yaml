@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: www-web
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: www
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: www-web
+spec:
+  replicas: 10
+  template:
+    metadata:
+      labels:
+        app: www
+    spec:
+      containers:
+        - name: www
+          image: PHP_IMAGE
+          resources:
+            requests:
+              cpu: 300m
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - "sh"
+                  - "-c"
+                  - >
+                    cp -r /src/commonhealth/public/. /tmp/commonhealth;
+                    mkdir -p /google ;
+                    cp -r /gconfig/. /google 
+
+          env:
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: laravel-app
+                  key: app_key
+
+            - name: DB_HOST_READ
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: COMMON_DB_READ_HOST
+            - name: DB_HOST_WRITE
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: COMMON_DB_WRITE_HOST
+            - name: ARTICLE_REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: WEB_REDIS_HOST
+            - name: SOLR_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: SOLR_HOST
+
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-user
+                  key: db_username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-user
+                  key: db_password
+
+            - name: KB_HOST_READ
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: KB_DB_READ_HOST
+            - name: KB_HOST_WRITE
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: KB_DB_WRITE_HOST
+            - name: KB_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-user
+                  key: kb_db_username
+            - name: KB_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-user
+                  key: kb_db_password
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: service-hosts
+                  key: REDIS_HOST
+
+          envFrom:
+            - configMapRef:
+                name: service-hosts
+            - configMapRef:
+                name: www-env
+            - configMapRef:
+                name: aws-config
+            - secretRef:
+                name: slack-secrets
+            - secretRef:
+                name: ch20th-secrets
+            - secretRef:
+                name: hicloud-secrets
+            - secretRef:
+                name: facebook-secrets
+            - secretRef:
+                name: api-keys
+            - secretRef:
+                name: www-secrets
+            - secretRef:
+                name: club-admin-secret-env
+
+          volumeMounts:
+            - name: stackdriver-credentials
+              mountPath: /config
+            - name: content-volume
+              mountPath: /tmp
+            - name: google-client-credentials
+              mountPath: /gconfig
+
+        - name: nginx
+          image: gcr.io/ch-web-prod/chdev.tw/nginx:v1.16.0
+          env:
+            - name: NGINX_WORKER_PROCESSES
+              value: "2"
+            - name: NGINX_WORKER_CONNECTIONS
+              value: "1024"
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: content-volume
+              mountPath: /www
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/
+
+      volumes:
+        - name: stackdriver-credentials
+          secret:
+            secretName: stackdriver-credentials
+        - name: content-volume
+          emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: www-nginx
+        - name: google-client-credentials
+          secret:
+            secretName: google-client-credentials
